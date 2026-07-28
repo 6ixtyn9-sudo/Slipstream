@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+
+# Editor/OS
+.DS_Store
+.vscode/
+.idea/
+*.bak
+*.swp
+
+# Data — captured at runtime, never committed.
+# Book snapshots in particular are append-only and grow without bound;
+# /orderbook-history is dead so these cannot be re-derived, but they also
+# must not bloat the repo. Cache them in CI, do not commit them.
+localdata/*
+!localdata/.gitkeep
+
+*.csv
+*.csv.gz
+*.duckdb
+*.duckdb.wal
+*.log
+
+# NEVER commit a wallet key. Slipstream research needs no auth at all;
+# if a key ever appears here something has gone wrong.
+*.pem
+*private_key*
