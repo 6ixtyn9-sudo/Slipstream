@@ -25,7 +25,7 @@ def main():
     print("Bucketing by closedTime (actual resolution date), paging by endDate desc.\n")
 
     offset = 0
-    limit = 500
+    limit = 100  # Gamma silently caps limit at 100 regardless of what is requested
     max_markets = 5000
     scanned = 0
 
@@ -57,8 +57,9 @@ def main():
             if resolution_of(m) is not None:
                 buckets[month]["resolvable"] += 1
 
-        scanned += len(markets)
-        offset += limit
+        actual = len(markets)
+        scanned += actual
+        offset += actual  # stride = actual rows returned, not the requested limit
 
     print(f"\nScanned {scanned} markets, found data for {len(buckets)} months.\n")
 

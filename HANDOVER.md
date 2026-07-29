@@ -160,36 +160,38 @@ Operator instinct on 2026-07-28 was to avoid such markets. That instinct is
 correct and should become an explicit filter: **only markets with (i) an
 independent probability estimate available and (ii) mechanical resolution.**
 
-### 5. Gamma closed-market paging caps at ~500 markets total
+### 5. Gamma `limit` silently capped at 100; offset ceiling ~2100
 
-Measured 2026-07-29. Paging with `order=endDate&ascending=false`:
+Measured 2026-07-29. Gamma returns 100 rows regardless of the `limit` param:
 
-    offset    0 →  100 markets returned (despite limit=500)
-    offset  500 →  100 markets
-    offset 1000 →  100 markets
-    offset 1500 →  100 markets
-    offset 2000 →  100 markets
-    offset 2500 →  HTTP 422 (paging ends)
-    ─────────────────────────────────
-    TOTAL: 500 closed markets, all in the 2025-11 → 2026-07 era.
+    limit=100   → 100 rows
+    limit=500   → 100 rows  (silently capped — looks correct but is not)
+    limit=1000  → 100 rows
 
-Consequence for wallet scoring: `build_positions` skips any trade whose
-`conditionId` is not in the resolution map. With only 500 resolvable markets,
-the vast majority of wallet trades are skipped as `unresolved` — starving the
-`min_trades_rank` gate. The instrumented `skip_counts` output in
-`test_persistence.py` makes this visible.
+Original code paged with `limit=500, offset += 500`. Because each call only
+returned 100 rows, **every page skipped 400 markets** — yielding 100 unique
+markets per 500-offset step. Five steps × 100 = 500 markets, which looked like
+an API ceiling but was a paging bug.
 
-Two candidate mitigations (not yet implemented):
-- **(a) Partition paging** — filter by `closedTime` date range to reach
-  different 500-market windows. Requires testing whether the API accepts
-  `closedTime` range params without 422.
-- **(b) Invert the sampling** — start from the 500 known-resolvable markets,
-  pull their trade rosters via `/trades?market=<conditionId>`, and rank wallets
-  that appear there. Guarantees every sampled trade is scoreable; removes the
-  recency bias from sampling the public feed. Likely the correct architecture.
+Correct paging: `limit=100, offset += len(batch)` (stride = actual rows
+returned). With correct stride, the offset ceiling is ~2100:
 
-Do not attempt (b) until the smoke-test skip_counts confirm `unresolved`
-dominates — proving the cap is the bottleneck, not something else.
+    offset  100 → 100 markets
+    offset  200 → 100 markets
+    ...
+    offset 2100 → HTTP 422
+    ──────────────────────────
+    TOTAL: ~2,100 reachable closed markets (4.2× the buggy count)
+
+**The "500-market cap" in the original smoke-test finding was a paging bug.**
+The corrected stride is in both `find_history_boundary.py` and
+`test_persistence.py`. The 42.3% unresolved rate and `eligible_A: 0` from the
+first smoke-test must be re-evaluated with the fixed paging.
+
+Inverted sampling (`/trades?market=<conditionId>`) remains a documented
+fallback. Verified live 2026-07-29 that `?market=` correctly filters to one
+conditionId's trades. Do not build until a re-run with correct paging
+confirms 2,100 markets is still insufficient.
 
 
 ---

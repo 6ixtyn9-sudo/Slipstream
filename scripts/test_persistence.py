@@ -119,18 +119,21 @@ def main():
     m_offset = 0
     while len(markets) < 5000:
         try:
-            batch = fetch_markets(limit=500, closed=True, offset=m_offset, recent_first=True)
+            # limit=100: Gamma silently caps limit at 100 regardless of what is requested.
+            # Stride = len(batch) (not the requested limit) to avoid skipping markets.
+            batch = fetch_markets(limit=100, closed=True, offset=m_offset, recent_first=True)
             if not batch:
                 break
             markets.extend(batch)
-            m_offset += 500
+            m_offset += len(batch)  # stride = actual rows returned
         except Exception:
             break
 
     resolutions = resolutions_for(markets)
     print(f"Fetched {len(markets)} markets → {len(resolutions)} resolvable condition IDs.")
-    print(f"NOTE: Gamma caps closed-market paging at ~500 markets (offset 2500 → 422).")
-    print(f"      If unresolved dominates skip_counts below, the resolution map is the bottleneck.")
+    print(f"NOTE: Gamma silently caps limit=100; offset ceiling ~2100 (→ ~2100 reachable markets).")
+    print(f"      If unresolved still dominates skip_counts, the resolution map is the bottleneck.")
+
 
     # ── Step 3: Fetch each wallet, split trades by period ─────────────────
     print(f"\nFetching wallet histories and splitting at {args.split}...")
