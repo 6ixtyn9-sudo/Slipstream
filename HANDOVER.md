@@ -160,6 +160,38 @@ Operator instinct on 2026-07-28 was to avoid such markets. That instinct is
 correct and should become an explicit filter: **only markets with (i) an
 independent probability estimate available and (ii) mechanical resolution.**
 
+### 5. Gamma closed-market paging caps at ~500 markets total
+
+Measured 2026-07-29. Paging with `order=endDate&ascending=false`:
+
+    offset    0 →  100 markets returned (despite limit=500)
+    offset  500 →  100 markets
+    offset 1000 →  100 markets
+    offset 1500 →  100 markets
+    offset 2000 →  100 markets
+    offset 2500 →  HTTP 422 (paging ends)
+    ─────────────────────────────────
+    TOTAL: 500 closed markets, all in the 2025-11 → 2026-07 era.
+
+Consequence for wallet scoring: `build_positions` skips any trade whose
+`conditionId` is not in the resolution map. With only 500 resolvable markets,
+the vast majority of wallet trades are skipped as `unresolved` — starving the
+`min_trades_rank` gate. The instrumented `skip_counts` output in
+`test_persistence.py` makes this visible.
+
+Two candidate mitigations (not yet implemented):
+- **(a) Partition paging** — filter by `closedTime` date range to reach
+  different 500-market windows. Requires testing whether the API accepts
+  `closedTime` range params without 422.
+- **(b) Invert the sampling** — start from the 500 known-resolvable markets,
+  pull their trade rosters via `/trades?market=<conditionId>`, and rank wallets
+  that appear there. Guarantees every sampled trade is scoreable; removes the
+  recency bias from sampling the public feed. Likely the correct architecture.
+
+Do not attempt (b) until the smoke-test skip_counts confirm `unresolved`
+dominates — proving the cap is the bottleneck, not something else.
+
+
 ---
 
 ## Capital — researched, not committed

@@ -129,11 +129,15 @@ def main():
 
     resolutions = resolutions_for(markets)
     print(f"Fetched {len(markets)} markets → {len(resolutions)} resolvable condition IDs.")
+    print(f"NOTE: Gamma caps closed-market paging at ~500 markets (offset 2500 → 422).")
+    print(f"      If unresolved dominates skip_counts below, the resolution map is the bottleneck.")
 
     # ── Step 3: Fetch each wallet, split trades by period ─────────────────
     print(f"\nFetching wallet histories and splitting at {args.split}...")
     wallet_list = list(wallet_addrs)
     scored_wallets: List[Tuple[WalletScore, WalletScore]] = []
+    agg_skips = {"flat_or_short": 0, "unresolved": 0, "negative_or_zero_cost": 0}
+    total_raw_trades = 0
     n_no_b_trades = 0
 
     for i, w in enumerate(wallet_list):
@@ -160,8 +164,12 @@ def main():
         if not trades_B:
             n_no_b_trades += 1
 
-        pos_A, _ = build_positions(trades_A, resolutions)
-        pos_B, _ = build_positions(trades_B, resolutions)
+        pos_A, skips_A = build_positions(trades_A, resolutions)
+        pos_B, skips_B = build_positions(trades_B, resolutions)
+
+        total_raw_trades += len(trades_A) + len(trades_B)
+        for k in agg_skips:
+            agg_skips[k] += skips_A.get(k, 0) + skips_B.get(k, 0)
 
         s_A = score_wallet(w, pos_A, min_n=GATES.min_trades_rank)
         s_B = score_wallet(w, pos_B, min_n=GATES.min_trades_test)
@@ -169,6 +177,10 @@ def main():
         scored_wallets.append((s_A, s_B))
 
     print(f"Done. {n_no_b_trades}/{len(wallet_list)} wallets had zero B-period trades.")
+    print(f"\nAggregate skip_counts across all wallets (total raw trades: {total_raw_trades}):")
+    for k, v in agg_skips.items():
+        pct = v / total_raw_trades * 100 if total_raw_trades else 0
+        print(f"  {k:<25}: {v:>6}  ({pct:.1f}% of raw trades)")
 
     # ── Step 4: Filter eligible wallets in A ──────────────────────────────
     eligible_A = [
