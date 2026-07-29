@@ -334,6 +334,48 @@ placeholder, not a commitment.
 
 ---
 
+
+## Task 3 — Falsification test: interim finding (2026-07-29)
+
+Smoke test completed. 272 wallets, split 2026-04-01, 384,359 raw trades.
+
+    Skip counts (aggregate across all wallets):
+      flat_or_short          :  14,839  ( 3.9%)
+      unresolved             : 162,684  (42.3%)   ← constraint 5 confirmed
+      negative_or_zero_cost  :       1  ( 0.0%)
+
+    Wallets with B-period trades : 272 / 272  (split date is fine)
+    Eligible in A (≥30 trades, ≥5 markets) : 0
+
+The 42.3% unresolved rate is constraint 5 in action. The 500-market resolution
+map does not cover 42% of traded conditionIds — so even active wallets with
+hundreds of trades cannot accumulate 30 scored positions in the A window.
+
+**The verdict is not a finding about wallet skill. The measurement instrument
+is too narrow to see the signal, if it exists.**
+
+Bugs 1–3 were fixed before this run. The guards correctly exited rather than
+producing a fake NOISE result.
+
+### Next measurement (proposed, not built)
+
+Invert the sampling architecture:
+1. Take the 500 known-resolvable conditionIds from the resolution map.
+2. For each conditionId, call `/trades?market=<conditionId>` to enumerate
+   wallets who traded that market.
+3. Build the wallet universe from wallets appearing in ≥5 distinct conditionIds
+   (pre-filters the min_markets gate at collection time).
+4. Score: every sampled trade is now guaranteed to be in the resolution map.
+   No unresolved skips. Sample bias shifts from "currently active" to "traded
+   these 500 markets" — a different but more tractable bias.
+
+This is a meaningful architectural change to Task 3, not a patch. It requires
+verifying that `/trades?market=` is a supported param (not yet confirmed live).
+Do not build until verified.
+
+
+---
+
 ## Build log — skeleton (2026-07-28)
 
 Status change: **skeleton exists, probe green, thesis still untested.**
