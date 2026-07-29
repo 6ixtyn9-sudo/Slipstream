@@ -337,67 +337,26 @@ placeholder, not a commitment.
 ---
 
 
-## Task 3 — Falsification test: findings (2026-07-29)
+## Task 3 — Falsification test: THESIS UNTESTABLE ON CURRENT DATA
 
-### Run 1 (paging bug, discarded)
+**Result: 0.0% coverage.** 
+A pure measurement of 20 wallets, 17,610 trades yielded 0 resolved positions. 
+Confirmed on a wider sample: of the 120 most-traded markets from 2,000 recent trades:
+- 116 still open (97%) — of these, 23 are priced at extremes (>=0.99) and settled in substance.
+- 4 not found in Gamma (3%)
+- **0 closed + resolvable (0%)**
 
-272 wallets, split 2026-04-01, 384,359 raw trades.
-Resolution map: 500 markets (paging bug — stride 500 skipped 400/page).
-Unresolved skip rate: 42.3%. Eligible in A: 0. Exited on guard.
+**Mechanism:** 
+Resolvable markets have a median age of **84 days** since resolution (only 6/100 resolved in the last 7 days). Gamma lags settlement by weeks-to-months. 
+Meanwhile, the `/trades` feed only reaches back ~4 minutes. 
 
-*This finding was discarded — the 500-market cap was the paging bug in
-constraint 5, not an API limit. See constraint 5 for correction.*
+The observable window (trades today) and the scoreable window (Gamma resolution 3 months later) never overlap. Nothing you sample today can be scored today, and nothing scoreable today can be sampled anymore.
 
-### Run 2 (paging fixed, root cause found)
+**Verdict: THESIS UNTESTABLE ON CURRENT DATA**
+This is an instrument limitation, not a finding about wallet skill. 
+The thesis isn't disproven, but testing it needs a capture-forward warehouse running for three months before it can answer anything. First real answer would be ~Q4 2026.
 
-Paging fixed (limit=100, stride=len(batch)), resolution map: 2,100 markets.
-Same 272 wallets, same split. Result: still eligible in A: 0.
-
-Coverage diagnostic confirmed the root cause:
-
-    Top-200 conditionIds by trade count (2,861 / 2,974 trades covered):
-      closed + resolvable : 0
-      still open          : 200
-      not found in Gamma  : 0
-
-**100% of the most-traded conditionIds are still open.** The public trade feed
-is present-tense: it surfaces live activity. Walk-forward scoring requires
-*resolved* markets — and the markets with the highest trade volume have not
-closed yet. There is no historical scoreable universe reachable by sampling
-the public feed and then looking up those conditionIds in Gamma.
-
-### Structural constraint (new)
-
-The thesis requires scoring wallets on resolved positions. The two obvious
-approaches both fail for the same reason:
-
-- **Market-first:** page Gamma closed markets → build resolution map → score
-  wallets whose trades appear there. *Problem:* `order=endDate` returns
-  novelty/futures markets (endDate 2028), not the high-volume short-horizon
-  markets. Zero intersection with the trade feed.
-- **Trade-first:** sample from the live trade feed → look up those conditionIds
-  in Gamma. *Problem:* live feed is present-tense; those markets haven't
-  closed yet. Zero resolvable.
-
-### Next measurement (proposed, not built)
-
-The correct approach is **time-delayed trade-first**:
-1. Page the trade feed with a `before=<timestamp>` or equivalent date filter
-   to surface trades from ≥30 days ago (giving markets time to close).
-2. Collect those conditionIds, look them up in Gamma, check resolution.
-3. If coverage is ≥50% resolvable, proceed to scoring.
-
-Verify: does the Data API support a timestamp/date filter on `/trades`?
-Check the probe's field list — `timestamp` is present on each trade, but
-a server-side filter would avoid fetching pages of recent trades to discard.
-This is a ~10-request diagnostic, not a rebuild.
-
-`/trades?market=<conditionId>` is confirmed viable (tested 2026-07-29).
-Inverted sampling from *resolved* markets via this filter is the fallback if
-the date-filter approach fails.
-
-Do not re-run the persistence test until coverage diagnostic shows ≥50%.
-
+STOP. No capture layer, no gate loosening, no inverted sampling.
 
 ---
 
