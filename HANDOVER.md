@@ -337,46 +337,88 @@ placeholder, not a commitment.
 ---
 
 
-## Task 3 — Falsification test: interim finding (2026-07-29)
+## Task 3 — Falsification test: findings (2026-07-29)
 
-Smoke test completed. 272 wallets, split 2026-04-01, 384,359 raw trades.
+### Run 1 (paging bug, discarded)
 
-    Skip counts (aggregate across all wallets):
-      flat_or_short          :  14,839  ( 3.9%)
-      unresolved             : 162,684  (42.3%)   ← constraint 5 confirmed
-      negative_or_zero_cost  :       1  ( 0.0%)
+272 wallets, split 2026-04-01, 384,359 raw trades.
+Resolution map: 500 markets (paging bug — stride 500 skipped 400/page).
+Unresolved skip rate: 42.3%. Eligible in A: 0. Exited on guard.
 
-    Wallets with B-period trades : 272 / 272  (split date is fine)
-    Eligible in A (≥30 trades, ≥5 markets) : 0
+*This finding was discarded — the 500-market cap was the paging bug in
+constraint 5, not an API limit. See constraint 5 for correction.*
 
-The 42.3% unresolved rate is constraint 5 in action. The 500-market resolution
-map does not cover 42% of traded conditionIds — so even active wallets with
-hundreds of trades cannot accumulate 30 scored positions in the A window.
+### Run 2 (paging fixed, root cause found)
 
-**The verdict is not a finding about wallet skill. The measurement instrument
-is too narrow to see the signal, if it exists.**
+Paging fixed (limit=100, stride=len(batch)), resolution map: 2,100 markets.
+Same 272 wallets, same split. Result: still eligible in A: 0.
 
-Bugs 1–3 were fixed before this run. The guards correctly exited rather than
-producing a fake NOISE result.
+Coverage diagnostic confirmed the root cause:
+
+    Top-200 conditionIds by trade count (2,861 / 2,974 trades covered):
+      closed + resolvable : 0
+      still open          : 200
+      not found in Gamma  : 0
+
+**100% of the most-traded conditionIds are still open.** The public trade feed
+is present-tense: it surfaces live activity. Walk-forward scoring requires
+*resolved* markets — and the markets with the highest trade volume have not
+closed yet. There is no historical scoreable universe reachable by sampling
+the public feed and then looking up those conditionIds in Gamma.
+
+### Structural constraint (new)
+
+The thesis requires scoring wallets on resolved positions. The two obvious
+approaches both fail for the same reason:
+
+- **Market-first:** page Gamma closed markets → build resolution map → score
+  wallets whose trades appear there. *Problem:* `order=endDate` returns
+  novelty/futures markets (endDate 2028), not the high-volume short-horizon
+  markets. Zero intersection with the trade feed.
+- **Trade-first:** sample from the live trade feed → look up those conditionIds
+  in Gamma. *Problem:* live feed is present-tense; those markets haven't
+  closed yet. Zero resolvable.
 
 ### Next measurement (proposed, not built)
 
-Invert the sampling architecture:
-1. Take the 500 known-resolvable conditionIds from the resolution map.
-2. For each conditionId, call `/trades?market=<conditionId>` to enumerate
-   wallets who traded that market.
-3. Build the wallet universe from wallets appearing in ≥5 distinct conditionIds
-   (pre-filters the min_markets gate at collection time).
-4. Score: every sampled trade is now guaranteed to be in the resolution map.
-   No unresolved skips. Sample bias shifts from "currently active" to "traded
-   these 500 markets" — a different but more tractable bias.
+The correct approach is **time-delayed trade-first**:
+1. Page the trade feed with a `before=<timestamp>` or equivalent date filter
+   to surface trades from ≥30 days ago (giving markets time to close).
+2. Collect those conditionIds, look them up in Gamma, check resolution.
+3. If coverage is ≥50% resolvable, proceed to scoring.
 
-This is a meaningful architectural change to Task 3, not a patch. It requires
-verifying that `/trades?market=` is a supported param (not yet confirmed live).
-Do not build until verified.
+Verify: does the Data API support a timestamp/date filter on `/trades`?
+Check the probe's field list — `timestamp` is present on each trade, but
+a server-side filter would avoid fetching pages of recent trades to discard.
+This is a ~10-request diagnostic, not a rebuild.
+
+`/trades?market=<conditionId>` is confirmed viable (tested 2026-07-29).
+Inverted sampling from *resolved* markets via this filter is the fallback if
+the date-filter approach fails.
+
+Do not re-run the persistence test until coverage diagnostic shows ≥50%.
 
 
 ---
+
+### Trap 4: ordering ≠ relevance — verify sample intersection before measuring
+
+Three times in one session (2026-07-28/29) a plausible-looking sort order
+produced a sample that didn't intersect the population being studied:
+
+1. **`endDate` vs `closedTime`** (Task 1) — sorting closed markets by `endDate`
+   desc surfaced future-dated markets that had already closed early. Boundary
+   scan returned 3 months of fake-future data.
+2. **Paging stride** (constraint 5) — `limit=500` returned 100 rows; using 500
+   as the stride skipped 400 markets per page. "500-market cap" was a bug.
+3. **`order=endDate` for the resolution map** (Task 3) — building the map from
+   Gamma sorted by `endDate` returns novelty/futures markets while actual volume
+   is in short-horizon markets. Zero overlap. Then: sampling from the live trade
+   feed returns present-tense open markets. Also zero resolvable.
+
+The generalisation: before measuring anything about a population, verify that
+your sample actually intersects it. A spot-check on a small subset will look
+fine and mislead you — `endDate`-sorted markets were all 100% resolvable.
 
 ## Build log — skeleton (2026-07-28)
 
